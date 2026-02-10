@@ -2,6 +2,8 @@ import os
 import sys
 import time
 import types
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -14,7 +16,9 @@ st.set_page_config(page_title="Term Deposit Subscription Predictor", page_icon="
 st.title("🏦 Term Deposit Subscription Predictor")
 st.caption("Predict whether a customer is likely to subscribe to a term deposit so the bank can prioritise outbound calls.")
 
-ARTIFACT_PATH = "best_model_pipeline.joblib"
+# ✅ Robust paths (works locally + Streamlit Cloud even if app is in a subfolder)
+APP_DIR = Path(__file__).parent
+ARTIFACT_PATH = APP_DIR / "best_model_pipeline.joblib"
 
 # ---------- Friendly labels (UI) -> dataset codes (model) ----------
 EDU_LABELS = {
@@ -83,7 +87,19 @@ for mod_name in ("main", "__main__"):
 # --- END FIX ---
 
 @st.cache_resource
-def load_artifact(path: str):
+def load_artifact(path: Path):
+    # Helpful debug if missing (especially on Streamlit Cloud)
+    if not path.exists():
+        st.error(
+            "Model artifact file not found.\n\n"
+            f"Expected: {path}\n\n"
+            f"App directory: {APP_DIR}\n"
+            f"Files in app directory: {[p.name for p in APP_DIR.iterdir()]}\n\n"
+            f"Working directory: {os.getcwd()}\n"
+            f"Files in working directory: {os.listdir(os.getcwd())}"
+        )
+        st.stop()
+
     obj = joblib.load(path)
 
     pipe = obj["pipeline"]
@@ -96,8 +112,8 @@ def load_artifact(path: str):
         feature_list = obj.get("features", None)
 
     meta = {
-        "artifact_path": os.path.abspath(path),
-        "artifact_mtime": time.ctime(os.path.getmtime(path)) if os.path.exists(path) else "missing",
+        "artifact_path": str(path.resolve()),
+        "artifact_mtime": time.ctime(path.stat().st_mtime),
         "sklearn_saved": obj.get("sklearn_version", "unknown"),
         "python_saved": obj.get("python_executable", "unknown"),
         "python_runtime": sys.executable,
@@ -106,11 +122,8 @@ def load_artifact(path: str):
     defaults = obj.get("defaults", {})
     return pipe, threshold, feature_list, meta, defaults
 
-try:
-    pipe, default_threshold, feature_list, meta, defaults = load_artifact(ARTIFACT_PATH)
-except Exception as e:
-    st.error(f"Model artifact not found or cannot be loaded: {e}")
-    st.stop()
+# ✅ No try/except: load_artifact already gives a clear error + stops
+pipe, default_threshold, feature_list, meta, defaults = load_artifact(ARTIFACT_PATH)
 
 if not feature_list:
     st.error("Feature list missing. Re-export model with raw feature names.")
